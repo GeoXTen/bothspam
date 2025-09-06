@@ -3,63 +3,70 @@ import requests
 from bs4 import BeautifulSoup
 
 WEBHOOK = os.getenv("DISCORD_WEBHOOK")
-BOOTH_URL = "https://booth.pm/en/browse/3D%20Models"
-EXCHANGE_API = "https://api.exchangerate.host/convert?from=JPY&to=USD"
 
 def get_usd_rate():
     try:
-        res = requests.get(EXCHANGE_API)
+        res = requests.get("https://api.exchangerate.host/latest?base=JPY&symbols=USD")
         data = res.json()
-        return data.get("result", 0.0067)  # fallback ~0.0067 USD/JPY
-    except:
-        return 0.0067
+        return data["rates"]["USD"]
+    except Exception as e:
+        print("ERROR: Failed to fetch exchange rate:", e)
+        return 0.007  # fallback rate
 
 def get_latest_items(rate):
-    res = requests.get(BOOTH_URL)
-    soup = BeautifulSoup(res.text, "html.parser")
+    url = "https://booth.pm/en/browse/3D%20Models?sort=new"
+    try:
+        res = requests.get(url)
+        soup = BeautifulSoup(res.text, "html.parser")
+        items = []
+        for product in soup.select(".gallery-item-card"):
+            title = product.select_one(".gallery-item-name")
+            link = product.get("href")
+            image = product.select_one("img")
+            price = product.select_one(".gallery-item-price")
 
-    items = []
-    for card in soup.select(".item-card"):
-        link_tag = card.select_one("a")
-        if not link_tag:
-            continue
-        link = "https://booth.pm" + link_tag.get("href")
-        title = link_tag.get("title", "Unknown Item")
+            if not (title and link and image and price):
+                continue
 
-        img_tag = card.find("img")
-        img = img_tag["src"] if img_tag else None
+            jpy = int(price.text.replace("¥", "").replace(",", "").strip())
+            usd = jpy * rate
 
-        price_tag = card.select_one(".price")
-        price_text = price_tag.get_text(strip=True) if price_tag else "Free / Unknown"
-
-        jpy_price = 0
-        if "¥" in price_text:
-            jpy_price = int("".join(filter(str.isdigit, price_text)))
-
-        usd_price = round(jpy_price * rate, 2) if jpy_price else 0
-        price_display = f"¥{jpy_price:,} (~${usd_price})" if jpy_price else price_text
-
-        items.append((title, link, img, price_display))
-    return items[:3]  # just latest 3 per run
+            items.append({
+                "title": title.text.strip(),
+                "url": "https://booth.pm" + link,
+                "image": image["src"],
+                "price": jpy,
+                "usd_price": usd
+            })
+        return items
+    except Exception as e:
+        print("ERROR: Failed to scrape Booth.pm:", e)
+        return []
 
 def send_to_discord(item):
-    title, link, img, price = item
     payload = {
         "embeds": [
             {
-                "title": title,
-                "url": link,
-                "description": f"💲 {price}",
-                "image": {"url": img},
-                "color": 0x2ECC71
+                "title": item["title"],
+                "url": item["url"],
+                "image": {"url": item["image"]},
+                "footer": {"text": f"Price: ¥{item['price']} | ${item['usd_price']:.2f}"}
             }
         ]
     }
-    requests.post(WEBHOOK, json=payload)
+    try:
+        r = requests.post(WEBHOOK, json=payload)
+        print(f"Posting: {item['title']}")
+        print("Discord response:", r.status_code, r.text)
+    except Exception as e:
+        print("ERROR: Failed to send to Discord:", e)
 
 if __name__ == "__main__":
     rate = get_usd_rate()
+    print("DEBUG: Exchange rate JPY→USD =", rate)
+
     items = get_latest_items(rate)
+    print("DEBUG: Found", len(items), "items")
 
     for item in items:
         send_to_discord(item)
