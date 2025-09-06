@@ -22,9 +22,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests beautifulsoup4
 
-      - name: Run bot script
+      - name: Find and run Python script
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          echo "DEBUG: Starting Booth.pm bot"
-          python bot.py
+          echo "DEBUG: Looking for Python file..."
+          FILE=$(find . -maxdepth 1 -name "*.py" | head -n 1)
+          echo "DEBUG: Found $FILE"
+          python "$FILE"
