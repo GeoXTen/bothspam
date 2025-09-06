@@ -28,7 +28,11 @@ def get_latest_items(rate):
             if not (title and link and image and price):
                 continue
 
-            jpy = int(price.text.replace("¥", "").replace(",", "").strip())
+            try:
+                jpy = int(price.text.replace("¥", "").replace(",", "").strip())
+            except ValueError:
+                continue
+
             usd = jpy * rate
 
             items.append({
@@ -68,5 +72,5 @@ if __name__ == "__main__":
     items = get_latest_items(rate)
     print("DEBUG: Found", len(items), "items")
 
-    for item in items:
+    for item in items[:5]:  # limit to first 5 to avoid spam
         send_to_discord(item)
